@@ -77,7 +77,11 @@ var LS={lines:[],vehicles:[],people:[]};
 try{var _l=JSON.parse(localStorage.getItem("sch_lists")||"{}");if(_l.lines)LS.lines=_l.lines;if(_l.vehicles)LS.vehicles=_l.vehicles;if(_l.people)LS.people=_l.people;else LS.people=DEFP.slice();if(_l.mig)LS.mig=1}catch(x){}
 try{if(!localStorage.getItem("sch_lists"))LS.people=DEFP.slice()}catch(x){}
 try{void 0}catch(x){}
-function saveLists(){try{localStorage.setItem("sch_lists",JSON.stringify(LS))}catch(x){}}
+var COL=new Intl.Collator("ko",{numeric:true,sensitivity:"base"});
+function srt(a){return a.sort(COL.compare)}
+function sortLists(){srt(LS.lines);srt(LS.vehicles);srt(LS.people)}
+sortLists();
+function saveLists(){sortLists();try{localStorage.setItem("sch_lists",JSON.stringify(LS))}catch(x){}}
 function evLines(e){if(e.items&&e.items.length)return e.items.map(function(i){return i.line}).filter(Boolean);return e.lines||(e.place?[e.place]:[])}
 function itemTasks(it){if(it.tasks)return it.tasks;return (it.works||[]).map(function(w){var a=(it.assign||{})[w]||{};return {work:w,sub:w==="정밀점검"?(it.sub||[]):[],pp:a.pp||[],v:Array.isArray(a.v)?a.v:[]}})}
 function taskText(t,full){var x=full?[(t.pp||[]).join(","),(t.v||[]).join(",")].filter(Boolean).join(" / "):"";return t.work+(t.sub&&t.sub.length?" "+t.sub.join(" "):"")+(x?"("+x+")":"")}
@@ -186,9 +190,9 @@ function openForm(e,date,date2){
   function itemsInit(){if(!e)return [];var its;if(e.items&&e.items.length)its=JSON.parse(JSON.stringify(e.items));else{var L=evLines(e),W=evWorks(e);if(!L.length&&!W.length)return [];var base=L.length?L:[""];its=base.map(function(l){return {line:l,works:W.slice(),sub:(e.sub||[]).slice(),assign:JSON.parse(JSON.stringify(e.assign||{}))}})}
     return its.map(function(it){return {line:it.line,tasks:JSON.parse(JSON.stringify(itemTasks(it)))}})}
   var sItems=itemsInit();
-  function lineList(){var out=[];function add(v){if(v&&out.indexOf(v)<0)out.push(v)}LS.lines.forEach(add);sItems.forEach(function(it){add(it.line)});return out}
-  function vehList(){var out=[];function add(v){if(v&&out.indexOf(v)<0)out.push(v)}LS.vehicles.forEach(add);sItems.forEach(function(it){(it.tasks||[]).forEach(function(t){(t.v||[]).forEach(add)})});return out}
-  function peopleList(){var out=[];function add(v){if(v&&out.indexOf(v)<0)out.push(v)}LS.people.forEach(add);sItems.forEach(function(it){(it.tasks||[]).forEach(function(t){(t.pp||[]).forEach(add)})});return out}
+  function lineList(){var out=[];function add(v){if(v&&out.indexOf(v)<0)out.push(v)}LS.lines.forEach(add);sItems.forEach(function(it){add(it.line)});return srt(out)}
+  function vehList(){var out=[];function add(v){if(v&&out.indexOf(v)<0)out.push(v)}LS.vehicles.forEach(add);sItems.forEach(function(it){(it.tasks||[]).forEach(function(t){(t.v||[]).forEach(add)})});return srt(out)}
+  function peopleList(){var out=[];function add(v){if(v&&out.indexOf(v)<0)out.push(v)}LS.people.forEach(add);sItems.forEach(function(it){(it.tasks||[]).forEach(function(t){(t.pp||[]).forEach(add)})});return srt(out)}
   f.appendChild(el("label","","선로명 (선로를 고르고, 선로별로 작업을 하나씩 추가해요)"));
   var lineBox=el("div");f.appendChild(lineBox);
   var itemBox=el("div");f.appendChild(itemBox);
