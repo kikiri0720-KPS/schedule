@@ -564,8 +564,10 @@ function scanFix(){try{return JSON.parse(localStorage.getItem("sch_scanfix")||"{
 function saveScanFix(m){try{localStorage.setItem("sch_scanfix",JSON.stringify(m))}catch(x){}}
 function normLineTxt(s){
   s=(s||"").replace(/[|\[\]{}]/g," ").replace(/\s+/g," ").trim();
+  s=s.replace(/^([0-9SIlA]{3,5})\s*k\s*V\b\s*/i,function(m,v){var a=v.replace(/[Il]/g,"1").replace(/S/g,"5").replace(/A/g,"4");return (a.indexOf("15")===0?"154":a.indexOf("34")===0?"345":a.indexOf("76")===0?"765":a.slice(0,3))+"kV "});
+  s=s.replace(/([가-힣])\s+(?=[가-힣])/g,"$1").replace(/\s*-\s*/g,"-").replace(/([가-힣])등(?=\s*\d)/,"$1 등 ").replace(/(\d)\s*[개계]/,"$1개");
   s=s.replace(/^(154|345|765)\s*[^\s가-힣]*\s*/,"$1kV ").replace(/^(15|34|76)\d[^\s가-힣]*\s*/,function(m){return {"15":"154","34":"345","76":"765"}[m.slice(0,2)]+"kV "});
-  s=s.replace(/\s*[T7][\/\s]*[L/ㄴ]\b\.?$/i," T/L").replace(/\s*T\s*\/\s*L/ig," T/L").replace(/\s+/g," ").trim();
+  s=s.replace(/Ｌ/g,"L").replace(/\s*[T7I1l]?\s*\/\s*[Lㄴl]+\s*ㄴ?\.?(?=\s|$)/g," T/L").replace(/\s*[T7][\/\s]*[L/ㄴ]\b\.?$/i," T/L").replace(/\s*T\s*\/\s*L/ig," T/L").replace(/(\d+)\s*[개계]\s*(?=T\/L)/,"$1개 ").replace(/\s+/g," ").trim();
   return s}
 // 선로명: 등록된 선로·지난번 고친 이름과 비슷하면 그걸로
 function lineCore(s){return (s||"").replace(/^\d{3}\s*kV\s*/i,"").replace(/\s*T\/L.*$/i,"").replace(/[^가-힣0-9]/g,"")}
@@ -581,6 +583,9 @@ function guessWork(raw,exact){var s=(raw||"").replace(/\s+/g," ").trim();if(!s)r
   var fx=scanFix(),best=null,bs=0;
   Object.keys(fx).forEach(function(k){if(k.indexOf("W:")!==0)return;var v=dice(k.slice(2),s);if(v>bs){bs=v;best=fx[k]}});
   if(best&&bs>=0.6)return best;
+  // 작업명이 두 개 이상 들어 있으면(예: 정기순시(opgw) 열화상진단) 읽은 그대로 씀
+  var hits=WK.filter(function(x){var xh=hangulOnly(x),h0=hangulOnly(s);if(xh.length<2)return false;for(var k=0;k+xh.length<=h0.length;k++)if(lev(h0.substr(k,xh.length),xh)<=(xh.length>=4?1:0))return true;return false});
+  if(hits.length>=2)return s.replace(/[^가-힣A-Za-z0-9()#~\s\-]/g,"").replace(/\s+/g," ").trim();
   var w=findWork(s);if(w)return w;
   // 자모 단위로 비슷한 작업명 찾기 (굵은 글씨 인식 오류 보정)
   var h=hangulOnly(s),bw="",bscore=1e9;if(h.length<2)return s;
@@ -636,7 +641,8 @@ function buildWeekEvents(start,end,rows,exact){
 async function prepWeek(file,rot,opt){opt=opt||window.__PW||{};
   var bmp=await createImageBitmap(file);if(rot){var rc=document.createElement("canvas");rc.width=bmp.height;rc.height=bmp.width;var rx=rc.getContext("2d");rx.translate(rc.width/2,rc.height/2);rx.rotate(rot*Math.PI/180);rx.drawImage(bmp,-bmp.width/2,-bmp.height/2);bmp=rc}
   var TW=opt.W||3000,sc=Math.min(TW/bmp.width,4000/bmp.height,2.2);
-  var w=Math.round(bmp.width*sc),h=Math.round(bmp.height*sc),c=document.createElement("canvas");c.width=w;c.height=h;var x=c.getContext("2d");x.drawImage(bmp,0,0,w,h);
+  var w=Math.round(bmp.width*sc),h=Math.round(bmp.height*sc),c=document.createElement("canvas");c.width=w;c.height=h;var x=c.getContext("2d");x.imageSmoothingQuality="high";x.drawImage(bmp,0,0,w,h);
+  if(!opt.noRaw){var raw=document.createElement("canvas");raw.width=bmp.width;raw.height=bmp.height;raw.getContext("2d").drawImage(bmp,0,0);c._raw=raw;c._rs=1/sc}
   var d=x.getImageData(0,0,w,h),p=d.data,N=w*h,g=new Float32Array(N),i,j;
   for(i=0;i<N;i++)g[i]=p[i*4]*0.3+p[i*4+1]*0.59+p[i*4+2]*0.11;
   function boxBlur(src,r){var I=new Float64Array((w+1)*(h+1)),out=new Float32Array(N),W1=w+1;
@@ -718,11 +724,40 @@ function parseWeekWords(lines,W){
     var C=segs.filter(function(s){return s.col==="C"&&inRow(s,r)}).sort(function(a,b){return a.y0-b.y0}).map(function(s){return s.t}).join(" ");
     var Wk=segs.filter(function(s){return s.col==="W"&&inRow(s,r)}).sort(function(a,b){return a.y0-b.y0}).map(function(s){return s.t});
     var days=[];segs.filter(function(s){return s.col==="T"&&inRow(s,r)}).forEach(function(s){s.ws.forEach(function(w){if(!/^[1-9]\d?$/.test(w.t)||!dx.length)return;var best=null,bd=1e9;dx.forEach(function(n){var dd=Math.abs(dayX[n]-w.cx);if(dd<bd){bd=dd;best=n}});if(best!=null&&bd<step*0.6&&days.indexOf(best)<0)days.push(best)})});
-    return {line:r.parts.join(" "),work:B,note:C.replace(/\bNo\s*\.?\s*/i,"No."),workers:Wk,days:days.sort(function(a,b){return a-b})}});
+    return {from:r.from,to:r.to,line:r.parts.join(" "),work:B,note:C.replace(/\bNo\s*\.?\s*/i,"No."),workers:Wk,days:days.sort(function(a,b){return a-b})}});
   out=out.filter(function(r){return r.workers.some(function(w){return hangulOnly(w).length>=2})||r.days.length});
-  return {start:start,end:end,rows:out,raw:lines.map(function(l){return (l.words||[]).map(function(w){return w.text}).join(" ")}).join("\n")}}
+  return {start:start,end:end,rows:out,bounds:{a:bAB,b:bBC,t:bDdays,w:bW,wr:Math.min(bWR,W),top:top,bottom:Math.min(stopY,Hh+10)},raw:lines.map(function(l){return (l.words||[]).map(function(w){return w.text}).join(" ")}).join("\n")}}
 window.__T.parseWeekWords=parseWeekWords;window.__T.xl=onWeekExcel;window.__T.gw=guessWork;window.__T.jl=jlev;window.__T.jamo=jamo;window.__T.buildWeekEvents=buildWeekEvents;window.__T.prepWeek=prepWeek;
 
+/* 선로명·업무명 칸은 굵은 글씨라 원본 사진을 크게 확대해 한 번 더 읽음 (좌표는 정리된 사진 기준) */
+function cropCol(src,rs,X0,X1,Y0,Y1){var x0=X0*rs,x1=X1*rs,y0=Y0*rs,y1=Y1*rs;
+  var up=Math.min(3.2,Math.max(1.5,1500/Math.max(1,x1-x0)));var c=document.createElement("canvas");c.width=Math.round((x1-x0)*up);c.height=Math.round((y1-y0)*up);
+  var g=c.getContext("2d");g.imageSmoothingQuality="high";g.fillStyle="#fff";g.fillRect(0,0,c.width,c.height);g.drawImage(src,x0,y0,x1-x0,y1-y0,0,0,c.width,c.height);
+  c._up=up;c._x0=x0;c._y0=y0;c._rs=rs;return c}
+function linesFromData(data){var out=[];var push=function(l){out.push({text:(l.words||[]).map(function(w){return w.text}).join(" "),y:(l.bbox.y0+l.bbox.y1)/2})};
+  if(data.blocks)data.blocks.forEach(function(b){(b.paragraphs||[]).forEach(function(p){(p.lines||[]).forEach(push)})});else(data.lines||[]).forEach(push);return out}
+function refineRows(P,key,crop,cl){if(!cl||!cl.length)return;
+  P.rows.forEach(function(r){var t=cl.filter(function(l){var y=(l.y/crop._up+crop._y0)/crop._rs;return y>=r.from&&y<r.to&&/[가-힣]|kV/i.test(l.text)&&!/선로명|업무명|작업구간/.test(l.text)}).map(function(l){return l.text.trim()}).join(" ");
+    if(hangulOnly(t).length>=2)r[key]=t})}
+// 확대해서 읽은 글자를 원래 사진 좌표로 돌려서, 그 영역의 글자를 바꿔 끼움
+function cropToLines(data,crop){var out=[];var conv=function(w){var f=function(v,o){return (v/crop._up+o)/crop._rs};return {text:w.text,x0:f(w.bbox.x0,crop._x0),x1:f(w.bbox.x1,crop._x0),y0:f(w.bbox.y0,crop._y0),y1:f(w.bbox.y1,crop._y0)}};
+  var push=function(l){out.push({words:(l.words||[]).map(conv)})};
+  if(data.blocks)data.blocks.forEach(function(b){(b.paragraphs||[]).forEach(function(p){(p.lines||[]).forEach(push)})});else(data.lines||[]).forEach(push);return out}
+function swapRegion(lines,X0,X1,Y0,Y1,repl){var out=lines.map(function(l){return {words:(l.words||[]).filter(function(w){var cx=(w.x0+w.x1)/2,cy=(w.y0+w.y1)/2;return !(cx>=X0&&cx<X1&&cy>=Y0&&cy<Y1)})}}).filter(function(l){return l.words.length});
+  repl.forEach(function(l){var ws=l.words.filter(function(w){var cx=(w.x0+w.x1)/2,cy=(w.y0+w.y1)/2;return cx>=X0&&cx<X1&&cy>=Y0&&cy<Y1});if(ws.length)out.push({words:ws})});return out}
+// 두 번 읽은 결과를 줄마다 비교해서 더 나은 쪽을 고름
+function nameScore(ws){var n=0;(ws||[]).forEach(function(l){var w=parseWorker(l,[]);if(w)w.pp.forEach(function(x){n+=LS.people.indexOf(x)>=0?2:(LS.people.length?-1:0.5)})});return n}
+function workScore(x){var h=hangulOnly(x).length;if(h<2)return 0;var g=guessWork(x);return (WK.indexOf(g)>=0?10:0)+h}
+function mergeP(P0,P1){if(!P1||!P1.rows.length)return P0;
+  P0.rows=P0.rows.map(function(r0){var best=null,bo=0;P1.rows.forEach(function(r1){var o=Math.min(r0.to,r1.to)-Math.max(r0.from,r1.from);if(o>bo){bo=o;best=r1}});
+    if(!best||bo<(r0.to-r0.from)*0.4)return r0;var r={from:r0.from,to:r0.to,note:r0.note,days:r0.days.length?r0.days:best.days};
+    r.line=hangulOnly(best.line).length>=2?best.line:r0.line;
+    r.work=workScore(best.work)>=workScore(r0.work)?best.work:r0.work;
+    r.workers=nameScore(best.workers)>=nameScore(r0.workers)?best.workers:r0.workers;
+    if(hangulOnly(best.note).length>hangulOnly(r0.note).length)r.note=best.note;
+    return r});
+  return P0}
+window.__T.mergeP=mergeP;window.__T.cropCol=cropCol;window.__T.refineRows=refineRows;window.__T.cropToLines=cropToLines;window.__T.swapRegion=swapRegion;
 async function onWeekScan(file){if(!file)return;
   var mask=el("div","mask"),f=el("div","modal");mask.appendChild(f);document.body.appendChild(mask);
   f.appendChild(el("b","","주간공정표 사진을 읽는 중…"));var st=el("div","sub","사진을 정리하고 있어요");st.style.margin="8px 0";f.appendChild(st);
@@ -737,7 +772,7 @@ async function onWeekScan(file){if(!file)return;
     var rot=0,bmp0=await createImageBitmap(file);
     if(bmp0.height>bmp0.width*1.15){var sc0=[];
       for(var ri=0;ri<2;ri++){var rr=ri?90:-90;phase="사진 방향 확인 중… ("+(ri+1)+"/2) ";
-        var big=await prepWeek(file,rr,{W:2200}),small=document.createElement("canvas");small.width=big.width;small.height=Math.round(big.height*0.45);small.getContext("2d").drawImage(big,0,0);
+        var big=await prepWeek(file,rr,{W:2200,noRaw:true}),small=document.createElement("canvas");small.width=big.width;small.height=Math.round(big.height*0.45);small.getContext("2d").drawImage(big,0,0);
         var q=await worker.recognize(small);
         var kw=(q.data.text.match(/선로|업무|구간|작업|기간|순시|점검|예방/g)||[]).length,sc=(q.data.confidence||0)+kw*3;sc0.push([sc,rr]);
         if(!ri&&q.data.confidence>65&&kw>=3)break}
@@ -745,13 +780,22 @@ async function onWeekScan(file){if(!file)return;
     if(cancelled)return;
     phase="글자 읽는 중… ";st.textContent="사진을 정리하고 있어요";
     cv=await prepWeek(file,rot);
-    var r=await worker.recognize(cv,{},{text:true,blocks:true});data=r.data;await worker.terminate()}
+    var r=await worker.recognize(cv,{},{text:true,blocks:true});data=r.data;
+    var lines0=[];
+    if(data.blocks)data.blocks.forEach(function(b){(b.paragraphs||[]).forEach(function(p){(p.lines||[]).forEach(function(l){lines0.push({words:(l.words||[]).map(function(w){return {text:w.text,x0:w.bbox.x0,y0:w.bbox.y0,x1:w.bbox.x1,y1:w.bbox.y1}})})})})});
+    var P0=parseWeekWords(lines0,cv.width);
+    if(P0.rows.length&&cv._raw&&cv._mode==="paper"){var bd=P0.bounds,H0=cv.height,T0=Math.max(0,Math.round(bd.top)),B0=Math.min(H0,Math.round(bd.bottom));
+      try{var L1=lines0,regs=[["선로명",0,bd.a,0,bd.a],["업무명",bd.a,bd.b,bd.a,bd.b],["작업자",bd.t,bd.wr,bd.w,bd.wr]];
+        for(var gi=0;gi<regs.length;gi++){var g_=regs[gi];phase=g_[0]+" 확대해서 다시 읽는 중… ";var cc=cropCol(cv._raw,cv._rs,Math.round(g_[1]),Math.round(g_[2]),T0,B0);
+          var rr_=await worker.recognize(cc,{},{text:true,blocks:true});L1=swapRegion(L1,g_[3],g_[4],T0,B0,cropToLines(rr_.data,cc))}
+        P0=mergeP(P0,parseWeekWords(L1,cv.width))}catch(e){console.warn(e)}}
+    window.__P0=P0;await worker.terminate()}
   catch(e){return fail("글자를 읽지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요")}
   if(cancelled)return;
   var lines=[];
   if(data.blocks)data.blocks.forEach(function(b){(b.paragraphs||[]).forEach(function(p){(p.lines||[]).forEach(function(l){lines.push({words:(l.words||[]).map(function(w){return {text:w.text,x0:w.bbox.x0,y0:w.bbox.y0,x1:w.bbox.x1,y1:w.bbox.y1}})})})})});
   else if(data.lines)data.lines.forEach(function(l){lines.push({words:(l.words||[]).map(function(w){return {text:w.text,x0:w.bbox.x0,y0:w.bbox.y0,x1:w.bbox.x1,y1:w.bbox.y1}})})});
-  var P=parseWeekWords(lines,cv.width);
+  var P=window.__P0||parseWeekWords(lines,cv.width);window.__P0=null;
   showWeekPreview(mask,f,P)}
 function showWeekPreview(mask,f,P){
   var start=P.start,end=P.end;
