@@ -169,7 +169,7 @@ function render(){
       var dayL=list.filter(function(e){return e.date<=k&&k<=(e.endDate||e.date)});
       dayL.slice(0,5).forEach(function(e){
         var ch=el("span","chip s-"+e.status,(e.branch?"["+e.branch.replace("지점","")+"] ":"")+(e.status==="예정"?"예정 ":e.status==="취소"?"취소 ":e.status==="일정변경"?"변경 ":"")+(e.kind==="휴전작업"?"⚡":"")+(e.need?"👥"+(e.roster?e.roster.length:0)+"/"+e.need+" ":"")+(e.start?e.start+" ":"")+((e.items&&e.items.length?e.items.map(itemText).join(" / "):[evLines(e).join("·"),wk(e)||e.title].filter(Boolean).join(" · "))||"일정"));
-        ch.onclick=function(ev){ev.stopPropagation();openDay(e.date,[e],true)};c.appendChild(ch);
+        ch.onclick=function(ev){ev.stopPropagation();if(ch._lp){ch._lp=0;return}openDay(e.date,[e],true)};hold(ch,e);c.appendChild(ch);
       });
       if(dayL.length>5)c.appendChild(el("span","more","+"+(dayL.length-5)+"건 더"));
       c.onclick=(function(k){return function(){if(!pend){var dayEv=list.filter(function(e){return e.date<=k&&k<=(e.endDate||e.date)});if(dayEv.length){openDay(k,dayEv);return}pend=k;toast("종료일을 눌러 주세요 (하루짜리는 같은 날을 한 번 더)");render();return}var a=pend<k?pend:k,b=pend<k?k:pend;pend=null;render();openForm(null,a,b)}})(k);
@@ -187,7 +187,7 @@ function render(){
       var bd=el("span","badge s-"+e.status,e.status);t.appendChild(bd);b.appendChild(t);
       var meta=[e.kind||"",(e.items&&e.items.length?e.items.map(itemFull).join(" / "):[evLines(e).length?"선로 "+evLines(e).join(", "):"",wk(e)?"작업 "+wk(e):"",asText(e)].filter(Boolean).join(" · ")),(e.need||(e.roster&&e.roster.length))?"인원 "+(e.roster?e.roster.length:0)+(e.need?"/"+e.need:"")+"명":"",e.roster&&e.roster.length?e.roster.join(", "):"",e.status==="일정변경"&&e.prevDate?"원래 "+e.prevDate.slice(5).replace("-","/")+(e.prevEnd&&e.prevEnd!==e.prevDate?"~"+e.prevEnd.slice(5).replace("-","/"):""):"",e.branch?"지점 "+e.branch:"",e.memo||""].filter(Boolean).join(" · ");
       if(meta)b.appendChild(el("div","sub",meta));
-      it.appendChild(b);it.onclick=function(){openDay(e.date,[e],true)};m.appendChild(it);
+      it.appendChild(b);it.onclick=function(){if(it._lp){it._lp=0;return}openDay(e.date,[e],true)};hold(it,e);m.appendChild(it);
     });
   }
 }
@@ -222,7 +222,7 @@ function renderWeek(m,list){
     days.forEach(function(d){var k=ds(d),td=el("td","cell"+(k===today?" today":""));
       cellEntries(W.rows[ln]||[],k).forEach(function(x){entryLines(x).forEach(function(L){var a=el("span","tk s-"+x.e.status);
         var b=el("b","",(x.e.status==="예정"?"[예정] ":x.e.status==="취소"?"[취소] ":x.e.status==="일정변경"?"[변경] ":"")+L.t);a.appendChild(b);if(L.m)a.appendChild(el("i","",L.m));
-        a.onclick=function(ev){ev.stopPropagation();openDay(x.e.date,[x.e],true)};td.appendChild(a)})});
+        a.onclick=function(ev){ev.stopPropagation();if(a._lp){a._lp=0;return}openDay(x.e.date,[x.e],true)};hold(a,x.e);td.appendChild(a)})});
       td.onclick=function(){openForm(null,k,k,ln&&ln!=="(선로 미지정)"?ln:"")};tr.appendChild(td)});
     bd.appendChild(tr)});
   tb.appendChild(bd);wrap.appendChild(tb);m.appendChild(wrap);
@@ -235,6 +235,28 @@ function copyWeek(W){var days=W.days,out=["■ 주간공정표 "+md(days[0])+"(�
   var txt=out.join("\n");
   function fallback(){var mask=el("div","mask"),f=el("div","modal");mask.appendChild(f);f.appendChild(el("b","","길게 눌러 복사하세요"));var ta=el("textarea");ta.rows=12;ta.value=txt;ta.style.width="100%";f.appendChild(ta);var cl=el("button","pri","닫기");cl.style.cssText="width:100%;margin-top:8px";cl.onclick=function(){mask.remove()};f.appendChild(cl);mask.onclick=function(ev){if(ev.target===mask)mask.remove()};document.body.appendChild(mask);ta.focus();ta.select()}
   try{navigator.clipboard.writeText(txt).then(function(){toast("주간공정표를 복사했어요. 카톡에 붙여넣으세요")},fallback)}catch(x){fallback()}}
+/* 일정을 꾹 누르면: 수정 / 삭제 메뉴 */
+function hold(node,e){var t=null,sx=0,sy=0;
+  node.style.webkitUserSelect="none";node.style.userSelect="none";node.style.webkitTouchCallout="none";
+  function start(ev){var p=ev.touches?ev.touches[0]:ev;sx=p.clientX;sy=p.clientY;clearTimeout(t);t=setTimeout(function(){t=null;node._lp=1;if(navigator.vibrate)try{navigator.vibrate(30)}catch(x){}holdMenu(e)},550)}
+  function move(ev){var p=ev.touches?ev.touches[0]:ev;if(t&&(Math.abs(p.clientX-sx)>10||Math.abs(p.clientY-sy)>10)){clearTimeout(t);t=null}}
+  function stop(){if(t){clearTimeout(t);t=null}}
+  node.addEventListener("touchstart",start,{passive:true});node.addEventListener("touchmove",move,{passive:true});node.addEventListener("touchend",stop);node.addEventListener("touchcancel",stop);
+  node.addEventListener("mousedown",start);node.addEventListener("mousemove",move);node.addEventListener("mouseup",stop);node.addEventListener("mouseleave",stop);
+  node.addEventListener("contextmenu",function(ev){ev.preventDefault()})}
+function holdMenu(e){
+  var mask=el("div","mask"),f=el("div","modal");mask.appendChild(f);
+  var title=(e.title||(e.items&&e.items.length?e.items.map(itemText).join(" / "):"")||wk(e)||e.place||"일정");
+  var rg=e.endDate&&e.endDate>e.date?e.date.slice(5).replace("-","/")+" ~ "+e.endDate.slice(5).replace("-","/"):e.date.slice(5).replace("-","/");
+  f.appendChild(el("b","",title));var sb=el("div","sub",rg+" · "+e.status);sb.style.margin="4px 0 12px";f.appendChild(sb);
+  var ed=el("button","","✎ 수정"),dl=el("button","","🗑 삭제"),cl=el("button","pri","닫기"),armed=false;
+  [ed,dl,cl].forEach(function(b){b.style.cssText="width:100%;margin-top:8px;padding:12px"});
+  dl.style.color="#dc2626";dl.style.borderColor="#dc2626";
+  ed.onclick=function(){mask.remove();openForm(e)};
+  dl.onclick=function(){if(!armed){armed=true;dl.textContent="한 번 더 누르면 삭제돼요";dl.style.background="#dc2626";dl.style.color="#fff";return}
+    dl.disabled=true;dl.textContent="삭제하는 중…";remove(e.id).then(function(){mask.remove()})};
+  cl.onclick=function(){mask.remove()};mask.onclick=function(ev){if(ev.target===mask)mask.remove()};
+  f.appendChild(ed);f.appendChild(dl);f.appendChild(cl);document.body.appendChild(mask)}
 function openDay(k,evs,single){
   var mask=el("div","mask"),f=el("div","modal");mask.appendChild(f);
   var dt=new Date(k+"T00:00:00");
