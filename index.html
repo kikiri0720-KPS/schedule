@@ -82,7 +82,7 @@ button.on{border-color:var(--pri);color:var(--pri);font-weight:600}
   <div class="bar" style="justify-content:center"><a class="pri" href="https://claude.ai/artifact/9j3QD7scbMCXRSN2iGiSsC" target="_blank" rel="noopener" style="display:inline-block;padding:8px 10px;border-radius:10px;background:var(--pri);color:#fff;text-decoration:none;border:1px solid var(--pri)">🤖 Claude로 정확하게 읽기</a><button id="wkScan">📷 주간공정표 사진으로 등록</button><button id="wkXls">📊 주간공정표 엑셀로 등록</button></div>
   <input type="file" id="fwk" accept="image/*" hidden><input type="file" id="fxls" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden>
   <input type="file" id="fgal" accept="image/*" hidden>
-  <div class="bar" style="justify-content:center"><button id="imp">📥 일정 가져오기</button><button id="bk">💾 백업 / 복원</button></div>
+  <div class="bar" style="justify-content:center"><button id="imp">📥 일정 가져오기 (작업일지 글자·코드)</button><button id="bk">💾 백업 / 복원</button></div>
   <div class="note"><select id="me" style="display:none"></select>달력에서 시작일→종료일을 차례로 누르면 기간 선택 · 일정은 서버에 저장되어 이 주소를 아는 모두가 같이 보고 고칠 수 있어요.</div>
 </div>
 <div id="toast"></div>
@@ -491,13 +491,51 @@ function importEvents(arr){var added=0,skipped=0,newOnes=[];
   saveLists();saveLocal();refreshWho();render();
   upsertEvents(newOnes).catch(function(e){toast("서버 저장 실패: "+errMsg(e))});
   return [added,skipped]}
+/* ---- 카톡 작업일지 글자 붙여넣기로 일정 등록 ---- */
+function logYear(m){var now=new Date(),y=now.getFullYear(),cm=now.getMonth()+1;if(m-cm>6)y--;else if(cm-m>6)y++;return y}
+function logDs(m,d){return logYear(m)+"-"+pad(m)+"-"+pad(d)}
+function logNames(s){var out=[];(s||"").replace(/\([^)]*\)/g," ").split(/[,\s\/·]+/).forEach(function(x){var h=x.replace(/[^가-힣]/g,"");if(h.length>=2&&h.length<=4&&out.indexOf(h)<0)out.push(h)});return out}
+function logVeh(s){var out=[];(s||"").split(/[,\s\/·]+/).forEach(function(x){x=x.trim();if(!x)return;var m=x.match(/(\d{4})$/),hit=null;
+    if(m&&typeof LS!=="undefined")LS.vehicles.forEach(function(v){if(!hit&&/(\d{4})\s*$/.test(v)&&v.match(/(\d{4})\s*$/)[1]===m[1])hit=v});
+    var v=hit||x;if(out.indexOf(v)<0)out.push(v)});return out}
+function logAtt(label){var l=label.replace(/\s/g,"");
+  var k=/반차/.test(l)?"반차":/연차/.test(l)?"연차":/질병|병가/.test(l)?"질병휴가":/특별/.test(l)?"특별휴가":/교육/.test(l)?"교육":/봉사/.test(l)?"사회봉사":/파견/.test(l)?"파견":/출장/.test(l)?"출장":/자격/.test(l)?"사내자격시험":"기타";
+  var memo=(label.match(/\(([^)]*)\)/)||[])[1]||(k==="기타"?label.trim():"");return {att:k,memo:memo}}
+function parseLogText(raw){
+  var lines=String(raw||"").replace(/\r/g,"").split("\n"),out=[],day=null,cur=null,inAtt=false,warn=[];
+  function fixL(l){return typeof fixLine==="function"?fixLine(l):l}
+  function flush(){if(!cur||!day)return;var pp=cur.pp,v=cur.v;
+    var works=cur.prev?["예방순시"]:cur.work.split(/\s*,\s*/).filter(Boolean);if(!works.length)works=[""];
+    out.push({date:day,items:[{line:cur.line,tasks:works.map(function(w){return {work:w,sub:[],pp:pp.slice(),v:v.slice(),note:cur.note}})}]});cur=null}
+  lines.forEach(function(L){var s=L.replace(/^[\s\-·•]+/,"").trim();if(!s||/^[─━—=_\-]{3,}/.test(s)||/^※/.test(s))return;
+    var h=s.match(/^●\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+    if(h){flush();inAtt=false;day=logDs(+h[1],+h[2]);return}
+    if(/^[【\[]?\s*근무\s*[·ㆍ.]?\s*근태/.test(s)){flush();inAtt=true;return}
+    if(inAtt){var ci=s.indexOf(":");if(ci<0)return;var a=logAtt(s.slice(0,ci)),rest=s.slice(ci+1),re=/([가-힣,\s]+?)\s*\(\s*(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*~\s*(?:(\d{1,2})\s*\/\s*)?(\d{1,2}))?\s*\)/g,m,got=0;
+      while((m=re.exec(rest))){var nm=logNames(m[1]);if(!nm.length)continue;var sm=+m[2],sd=+m[3],em=m[4]?+m[4]:sm,ed=m[5]?+m[5]:sd;
+        out.push({kind:"근태",date:logDs(sm,sd),endDate:logDs(em,ed),att:a.att,pp:nm,memo:a.memo});got++}
+      if(!got)warn.push(s);return}
+    var o=s.match(/^○\s*([^:：]+?)\s*[:：]\s*(.*)$/);
+    if(o){flush();if(!day){warn.push(s);return}var head=o[1].trim(),body=o[2].trim();
+      if(/^(주말\s*)?예방$/.test(head.replace(/\s/g,""))||/^주말예방$/.test(head.replace(/\s/g,""))){var wkd=/주말/.test(head+body);
+        cur={prev:true,line:wkd?"주말예방순시":"예방순시",work:"예방순시",pp:logNames(body),v:[],note:""};return}
+      cur={prev:false,line:fixL(head),work:body,pp:[],v:[],note:""};return}
+    var f=s.match(/^(구간|인원|차량)\s*[:：]\s*(.*)$/);
+    if(f&&cur){if(f[1]==="구간")cur.note=f[2].trim();else if(f[1]==="인원")cur.pp=logNames(f[2]);else cur.v=logVeh(f[2]);return}
+  });
+  flush();return {events:out,warn:warn}}
 $("imp").onclick=function(){
   var mask=el("div","mask"),f=el("div","modal");mask.appendChild(f);
   f.appendChild(el("b","","일정 가져오기"));
-  var info=el("div","sub","작업지시서 사진을 Claude에게 보내면 받는 일정 코드를 아래에 붙여넣고 추가를 누르세요. 현재 일정은 그대로 두고 새 일정만 더해져요. 이미 같은 일정이 있으면 건너뛰어요.");info.style.margin="6px 0";f.appendChild(info);
-  var ta=el("textarea");ta.rows=9;ta.style.width="100%";ta.placeholder="여기에 붙여넣기";f.appendChild(ta);
+  var info=el("div","sub","카톡 작업일지 글자(● 11월 9일 작업일지 …)를 그대로 복사해 붙여넣거나, Claude에게 받은 일정 코드를 붙여넣고 추가를 누르세요. 맨 아래 근무·근태도 같이 등록돼요. 현재 일정은 그대로 두고 새 일정만 더해지며, 이미 같은 일정이 있으면 건너뛰어요.");info.style.margin="6px 0";f.appendChild(info);
+  var ta=el("textarea");ta.rows=9;ta.style.width="100%";ta.placeholder="● 11월 9일 작업일지\n○예방 : 홍길동, 김철수\n○154kV ○○-○○T/L : 정기순시\n구간 : No.1~23\n인원 : …\n차량 :3091,8111\n\n【근무·근태】\n연차휴가 : 홍길동 (11/9)";f.appendChild(ta);
   var row=el("div","row");row.style.marginTop="10px";var go=el("button","pri","추가"),cl=el("button","","닫기");row.appendChild(cl);row.appendChild(go);f.appendChild(row);
-  go.onclick=function(){var arr;try{arr=JSON.parse(ta.value)}catch(x){toast("코드가 올바르지 않아요. 전체를 다시 붙여넣어 주세요");return}
+  go.onclick=function(){var arr,txt=ta.value.trim();if(!txt){toast("붙여넣은 내용이 없어요");return}
+    if(!/^[\[{]/.test(txt)){var P=parseLogText(txt),ev=P.events;if(!ev.length){toast("작업일지 형식을 찾지 못했어요 (● 11월 9일 작업일지 줄이 있어야 해요)");return}
+      var na=ev.filter(function(x){return x.kind==="근태"}).length,days={};ev.forEach(function(x){if(x.kind!=="근태")days[x.date]=1});
+      if(!confirm(Object.keys(days).length+"일치 작업 "+(ev.length-na)+"건"+(na?", 근태 "+na+"건":"")+"을 추가할까요?"+(P.warn.length?"\n\n읽지 못한 줄 "+P.warn.length+"개:\n"+P.warn.slice(0,5).join("\n"):"")))return;
+      var r0=importEvents(ev);mask.remove();toast(r0[0]+"건 추가"+(r0[1]?", "+r0[1]+"건은 이미 있어 건너뜀":""));return}
+    try{arr=JSON.parse(txt)}catch(x){toast("코드가 올바르지 않아요. 전체를 다시 붙여넣어 주세요");return}
     if(arr&&!Array.isArray(arr)&&Array.isArray(arr.events))arr=arr.events;if(!Array.isArray(arr)){toast("코드가 올바르지 않아요");return}
     var r=importEvents(arr);mask.remove();toast(r[0]+"건 추가"+(r[1]?", "+r[1]+"건은 이미 있어 건너뜀":""))};
   cl.onclick=function(){mask.remove()};mask.onclick=function(ev){if(ev.target===mask)mask.remove()};
